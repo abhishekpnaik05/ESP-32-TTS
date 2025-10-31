@@ -1,11 +1,21 @@
 import express from "express";
 import bodyParser from "body-parser";
 import cors from "cors";
+import path from "path";
+import { fileURLToPath } from "url";
 
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
+// ---------- For serving static frontend files ----------
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Serve frontend (inside ./frontend folder)
+app.use(express.static(path.join(__dirname, "./frontend")));
+
+// ---------- Backend API Logic ----------
 let latestText = "";   // stores the latest text to speak
 let spoken = true;     // whether ESP32 already took it
 
@@ -30,11 +40,11 @@ app.get("/get-text", (req, res) => {
   }
 });
 
-// 3️⃣ Optional status route for testing
-app.get("/", (req, res) => {
-  res.send("✅ ESP32 TTS Cloud Backend is running!");
+// 3️⃣ Catch-all route to serve frontend index.html
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "./frontend/index.html"));
 });
 
-// Start server
+// ---------- Start server ----------
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🌍 Server running on port ${PORT}`));
