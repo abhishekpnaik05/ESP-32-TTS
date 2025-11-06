@@ -1,53 +1,83 @@
+// server.js
+// Lightweight backend for ESP32 WebSocket speech control
+// Works fully offline; no external APIs.
+
 import express from "express";
 import bodyParser from "body-parser";
 import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
+import { WebSocketServer } from "ws";
 
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-// ---------- Static frontend serving ----------
+// -------------------- Static Frontend --------------------
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const _dirname = path.dirname(_filename);
 app.use(express.static(path.join(__dirname, "./frontend")));
 
-// ---------- Backend variables ----------
-let latestText = ""; // stores the latest text to speak
-let pending = false; // whether ESP32 needs to fetch it
+// -------------------- WebSocket Layer --------------------
+const server = app.listen(process.env.PORT || 3000, () =>
+  console.log(`🌍 Server running on port ${process.env.PORT || 3000}`)
+);
 
-// 🟢 1️⃣ Route for frontend to send text
+const wss = new WebSocketServer({ server });
+let espSocket = null; // current connected ESP32 socket
+
+wss.on("connection", (ws) => {
+  console.log("🔗 New WebSocket client connected");
+
+  // first message might identify ESP32
+  ws.once("message", (msg) => {
+    const text = msg.toString().trim();
+    if (text === "ESP32_READY") {
+      espSocket = ws;
+      console.log("✅ ESP32 registered!");
+      return; // no broadcast needed
+    } else {
+      // Not ESP32, it's probably frontend
+      forwardToESP(text);
+    }
+  });
+
+  ws.on("message", (msg) => {
+    const text = msg.toString().trim();
+    // only forward messages from frontend to ESP32
+    if (espSocket && ws !== espSocket) {
+      forwardToESP(text);
+    }
+  });
+
+  ws.on("close", () => {
+    if (ws === espSocket) {
+      espSocket = null;
+      console.log("❌ ESP32 disconnected");
+    } else {
+      console.log("❌ Web client disconnected");
+    }
+  });
+});
+
+function forwardToESP(text) {
+  if (espSocket && espSocket.readyState === 1) {
+    espSocket.send(text);
+    console.log("📤 Sent to ESP32:", text);
+  } else {
+    console.log("⚠ No ESP32 connected, cannot send:", text);
+  }
+}
+
+// -------------------- Optional REST route --------------------
 app.post("/send-text", (req, res) => {
   const { text } = req.body;
   if (!text) return res.status(400).json({ error: "No text provided" });
-
-  latestText = text;
-  pending = true; // mark as new message
-  console.log("🟢 New text queued:", text);
-
-  res.json({ status: "queued", text });
+  forwardToESP(text);
+  res.json({ status: "sent", text });
 });
 
-// 🟢 2️⃣ Route for ESP32 to fetch the latest text
-app.get("/get-text", (req, res) => {
-  if (pending && latestText) {
-    console.log("📤 ESP32 fetched:", latestText);
-    res.json({ text: latestText });
-
-    // after delivering, clear for next round
-    pending = false;
-    latestText = "";
-  } else {
-    res.json({ text: "" }); // no new message
-  }
-});
-
-// 🟢 3️⃣ Serve index.html for frontend UI
+// -------------------- Fallback for frontend --------------------
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "./frontend/index.html"));
 });
-
-// ---------- Start server ----------
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🌍 Server running on port ${PORT}`));
