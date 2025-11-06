@@ -1,49 +1,31 @@
 <!DOCTYPE html>
 <html>
-<head>
-  <meta charset="utf-8">
-  <title>ESP32 Cloud Voice Control</title>
-  <style>
-    body { font-family: Arial, sans-serif; max-width: 600px; margin: 40px auto; text-align: center; }
-    textarea { width: 100%; height: 100px; font-size: 16px; border-radius: 8px; padding: 8px; }
-    button { padding: 10px 16px; font-size: 16px; margin-top: 12px; cursor: pointer; border-radius: 8px; background-color: #0a7c66; color: white; border: none; }
-    #status { margin-top: 20px; font-weight: 600; }
-  </style>
-</head>
-<body>
-  <h2>Cloud Text-to-Speech Control</h2>
-  <label>Enter text to speak:</label>
-  <textarea id="text" placeholder="Type something for ESP32 to speak..."></textarea><br>
-  <button onclick="sendText()">Send to ESP32</button>
-  <div id="status">Status: idle</div>
+  <head>
+    <title>ESP32 WebSocket Speech Control</title>
+  </head>
+  <body style="font-family: sans-serif;">
+    <h2>ESP32 Offline Speech Control</h2>
+    <input id="msg" placeholder="Type text to speak" style="width:200px" />
+    <button onclick="send()">Send</button>
+    <pre id="log"></pre>
 
-  <script>
-    async function sendText() {
-      const text = document.getElementById("text").value.trim();
-      if (!text) return alert("Please enter some text!");
-      
-      document.getElementById("status").innerText = "⏳ Sending...";
-      try {
-        // ✅ Use relative path (works automatically on Render)
-        const res = await fetch("/send-text", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text })
-        });
+    <script>
+      const ws = new WebSocket("ws://" + location.host);
+      const log = document.getElementById("log");
 
-        if (!res.ok) {
-          const msg = await res.text();
-          throw new Error(`Server error: ${msg}`);
+      ws.onopen = () => log.textContent += "✅ Connected\n";
+      ws.onclose = () => log.textContent += "❌ Disconnected\n";
+      ws.onerror = (e) => log.textContent += "⚠ Error: " + e + "\n";
+      ws.onmessage = (e) => log.textContent += "📩 " + e.data + "\n";
+
+      function send() {
+        const txt = document.getElementById("msg").value.trim();
+        if (txt) {
+          ws.send(txt);
+          log.textContent += "➡ Sent: " + txt + "\n";
+          document.getElementById("msg").value = "";
         }
-
-        const json = await res.json();
-        document.getElementById("status").innerText = "✅ Sent: " + json.text;
-        console.log("Server response:", json);
-      } catch (err) {
-        console.error("❌ Fetch error:", err);
-        document.getElementById("status").innerText = "❌ Error: " + err.message;
       }
-    }
-  </script>
-</body>
+    </script>
+  </body>
 </html>
