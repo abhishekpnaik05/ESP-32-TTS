@@ -1,7 +1,4 @@
 // server.js
-// Lightweight backend for ESP32 WebSocket speech control
-// Works fully offline; no external APIs.
-
 import express from "express";
 import bodyParser from "body-parser";
 import cors from "cors";
@@ -13,38 +10,35 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-// -------------------- Static Frontend --------------------
+// ---------- Static Frontend ----------
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const _dirname = path.dirname(_filename);
 app.use(express.static(path.join(__dirname, "./frontend")));
 
-// -------------------- WebSocket Layer --------------------
+// ---------- WebSocket Layer ----------
 const server = app.listen(process.env.PORT || 3000, () =>
   console.log(`🌍 Server running on port ${process.env.PORT || 3000}`)
 );
 
 const wss = new WebSocketServer({ server });
-let espSocket = null; // current connected ESP32 socket
+let espSocket = null;
 
 wss.on("connection", (ws) => {
-  console.log("🔗 New WebSocket client connected");
+  console.log("🔗 WebSocket client connected");
 
-  // first message might identify ESP32
   ws.once("message", (msg) => {
     const text = msg.toString().trim();
     if (text === "ESP32_READY") {
       espSocket = ws;
       console.log("✅ ESP32 registered!");
-      return; // no broadcast needed
+      return;
     } else {
-      // Not ESP32, it's probably frontend
       forwardToESP(text);
     }
   });
 
   ws.on("message", (msg) => {
     const text = msg.toString().trim();
-    // only forward messages from frontend to ESP32
     if (espSocket && ws !== espSocket) {
       forwardToESP(text);
     }
@@ -69,7 +63,7 @@ function forwardToESP(text) {
   }
 }
 
-// -------------------- Optional REST route --------------------
+// ---------- REST fallback ----------
 app.post("/send-text", (req, res) => {
   const { text } = req.body;
   if (!text) return res.status(400).json({ error: "No text provided" });
@@ -77,7 +71,7 @@ app.post("/send-text", (req, res) => {
   res.json({ status: "sent", text });
 });
 
-// -------------------- Fallback for frontend --------------------
+// ---------- Fallback for frontend ----------
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "./frontend/index.html"));
 });

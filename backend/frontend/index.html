@@ -1,30 +1,77 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <title>ESP32 WebSocket Speech Control</title>
+    <title>ESP32 Speech Control</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background: #f8f8f8;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+      }
+      h2 { color: #333; }
+      #msg {
+        width: 320px;
+        font-size: 1.2rem;
+        padding: 10px;
+        border: 2px solid #333;
+        border-radius: 8px;
+        margin-bottom: 15px;
+      }
+      button {
+        font-size: 1.2rem;
+        padding: 12px 24px;
+        border: none;
+        border-radius: 8px;
+        background: #0078ff;
+        color: white;
+        cursor: pointer;
+      }
+      button:hover { background: #005fd1; }
+      #log {
+        width: 360px;
+        height: 200px;
+        margin-top: 20px;
+        background: #fff;
+        border: 1px solid #ccc;
+        border-radius: 8px;
+        padding: 10px;
+        overflow-y: auto;
+        font-family: monospace;
+        font-size: 0.9rem;
+      }
+    </style>
   </head>
-  <body style="font-family: sans-serif;">
+  <body>
     <h2>ESP32 Offline Speech Control</h2>
-    <input id="msg" placeholder="Type text to speak" style="width:200px" />
+    <input id="msg" placeholder="Type text to speak" />
     <button onclick="send()">Send</button>
-    <pre id="log"></pre>
+    <div id="log"></div>
 
     <script>
-      const ws = new WebSocket("ws://" + location.host);
+      const ws = new WebSocket("wss://" + location.host);   // ✅ secure
       const log = document.getElementById("log");
 
-      ws.onopen = () => log.textContent += "✅ Connected\n";
-      ws.onclose = () => log.textContent += "❌ Disconnected\n";
-      ws.onerror = (e) => log.textContent += "⚠ Error: " + e + "\n";
-      ws.onmessage = (e) => log.textContent += "📩 " + e.data + "\n";
+      function logLine(t) {
+        log.innerHTML += t + "<br>";
+        log.scrollTop = log.scrollHeight;
+      }
+
+      ws.onopen = () => logLine("✅ Connected to server");
+      ws.onclose = () => logLine("❌ Disconnected");
+      ws.onerror = (e) => logLine("⚠ WebSocket error");
+      ws.onmessage = (e) => logLine("📩 " + e.data);
 
       function send() {
         const txt = document.getElementById("msg").value.trim();
-        if (txt) {
-          ws.send(txt);
-          log.textContent += "➡ Sent: " + txt + "\n";
-          document.getElementById("msg").value = "";
-        }
+        if (!txt) return;
+        ws.send(txt);
+        logLine("➡ Sent: " + txt);
+        document.getElementById("msg").value = "";
+        alert("Message sent to ESP32: " + txt);
       }
     </script>
   </body>
