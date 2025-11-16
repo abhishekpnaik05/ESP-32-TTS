@@ -22,7 +22,7 @@ app.use(express.static(path.join(__dirname, "./frontend")));
 
 // ----- HTTP SERVER -----
 const server = app.listen(process.env.PORT || 3000, () =>
-  console.log(🚀 Server online on ${process.env.PORT || 3000})
+  console.log(`🚀 Server online on ${process.env.PORT || 3000}`)
 );
 
 // ----- WEBSOCKET ATTACH -----
