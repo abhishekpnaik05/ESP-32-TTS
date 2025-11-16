@@ -1,77 +1,109 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <title>ESP32 Speech Control</title>
+    <title>ESP32 Speech + OTA Control</title>
     <style>
       body {
         font-family: Arial, sans-serif;
-        background: #f8f8f8;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        height: 100vh;
+        padding: 20px;
+        background: #f4f4f4;
       }
-      h2 { color: #333; }
-      #msg {
-        width: 320px;
-        font-size: 1.2rem;
+      #box {
+        max-width: 420px;
+        margin: auto;
+        background: white;
+        padding: 20px;
+        border-radius: 12px;
+        box-shadow: 0 0 10px #ccc;
+      }
+      input, button {
+        font-size: 1.1rem;
         padding: 10px;
-        border: 2px solid #333;
-        border-radius: 8px;
-        margin-bottom: 15px;
       }
       button {
-        font-size: 1.2rem;
-        padding: 12px 24px;
-        border: none;
-        border-radius: 8px;
+        margin-top: 10px;
         background: #0078ff;
         color: white;
+        border: none;
+        border-radius: 8px;
         cursor: pointer;
       }
       button:hover { background: #005fd1; }
       #log {
-        width: 360px;
-        height: 200px;
         margin-top: 20px;
-        background: #fff;
-        border: 1px solid #ccc;
-        border-radius: 8px;
-        padding: 10px;
+        height: 200px;
         overflow-y: auto;
+        background: #111;
+        color: #0f0;
+        padding: 10px;
         font-family: monospace;
-        font-size: 0.9rem;
+        border-radius: 8px;
       }
     </style>
   </head>
+
   <body>
-    <h2>ESP32 Offline Speech Control</h2>
-    <input id="msg" placeholder="Type text to speak" />
-    <button onclick="send()">Send</button>
-    <div id="log"></div>
+    <div id="box">
+
+      <h2>ESP32 TTS Control</h2>
+
+      <input id="msg" placeholder="Type text to speak" style="width:100%">
+      <button onclick="sendMsg()">Send</button>
+
+      <h3>OTA Firmware Update</h3>
+      <input type="file" id="binfile" accept=".bin">
+      <button onclick="uploadBin()">Upload Firmware</button>
+      <button onclick="triggerOTA()">Start OTA Update</button>
+
+      <h3>Log Output</h3>
+      <div id="log"></div>
+
+    </div>
 
     <script>
-      const ws = new WebSocket("wss://" + location.host);   // ✅ secure
-      const log = document.getElementById("log");
+      const log = (t) => {
+        const el = document.getElementById("log");
+        el.innerHTML += t + "<br>";
+        el.scrollTop = el.scrollHeight;
+      };
 
-      function logLine(t) {
-        log.innerHTML += t + "<br>";
-        log.scrollTop = log.scrollHeight;
+      const ws = new WebSocket("wss://" + location.host);
+
+      ws.onopen = () => log("🟢 WS Connected");
+      ws.onclose = () => log("🔴 WS Disconnected");
+      ws.onerror = () => log("⚠ WS Error");
+      ws.onmessage = (e) => log("📩 " + e.data);
+
+      function sendMsg() {
+        const t = document.getElementById("msg").value.trim();
+        if (!t) return;
+        ws.send(t);
+        log("➡ Sent: " + t);
+        document.getElementById("msg").value = "";
       }
 
-      ws.onopen = () => logLine("✅ Connected to server");
-      ws.onclose = () => logLine("❌ Disconnected");
-      ws.onerror = (e) => logLine("⚠ WebSocket error");
-      ws.onmessage = (e) => logLine("📩 " + e.data);
+      async function uploadBin() {
+        const file = document.getElementById("binfile").files[0];
+        if (!file) return alert("Select a .bin file!");
 
-      function send() {
-        const txt = document.getElementById("msg").value.trim();
-        if (!txt) return;
-        ws.send(txt);
-        logLine("➡ Sent: " + txt);
-        document.getElementById("msg").value = "";
-        alert("Message sent to ESP32: " + txt);
+        const form = new FormData();
+        form.append("firmware", file);
+
+        const res = await fetch("/upload-firmware", {
+          method: "POST",
+          body: form
+        });
+
+        const data = await res.json();
+        log("📦 Firmware uploaded");
+
+        alert("Firmware uploaded successfully.");
+      }
+
+      function triggerOTA() {
+        ws.send("OTA_UPDATE");
+        log("🚀 OTA Update triggered");
+        alert("OTA command sent to ESP32");
       }
     </script>
   </body>

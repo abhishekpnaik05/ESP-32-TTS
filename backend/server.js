@@ -1,77 +1,79 @@
-// server.js
 import express from "express";
 import bodyParser from "body-parser";
 import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
 import { WebSocketServer } from "ws";
+import multer from "multer";
+import fs from "fs";
 
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-// ---------- Static Frontend ----------
+const upload = multer({ dest: "uploads/" });
+
+let latestFirmwarePath = null;
+
+// ----- STATIC FRONTEND -----
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const _dirname = path.dirname(_filename);
 app.use(express.static(path.join(__dirname, "./frontend")));
 
-// ---------- WebSocket Layer ----------
+// ----- HTTP SERVER -----
 const server = app.listen(process.env.PORT || 3000, () =>
-  console.log(`🌍 Server running on port ${process.env.PORT || 3000}`)
+  console.log(🚀 Server online on ${process.env.PORT || 3000})
 );
 
+// ----- WEBSOCKET ATTACH -----
 const wss = new WebSocketServer({ server });
+
 let espSocket = null;
 
 wss.on("connection", (ws) => {
-  console.log("🔗 WebSocket client connected");
-
-  ws.once("message", (msg) => {
-    const text = msg.toString().trim();
-    if (text === "ESP32_READY") {
-      espSocket = ws;
-      console.log("✅ ESP32 registered!");
-      return;
-    } else {
-      forwardToESP(text);
-    }
-  });
+  console.log("🔗 New WS client");
 
   ws.on("message", (msg) => {
     const text = msg.toString().trim();
+    console.log("📨 Received:", text);
+
+    if (text === "ESP32_READY") {
+      espSocket = ws;
+      console.log("🟢 ESP32 Registered");
+      return;
+    }
+
     if (espSocket && ws !== espSocket) {
-      forwardToESP(text);
+      espSocket.send(text);
+      console.log("📤 Sent to ESP32 →", text);
     }
   });
 
   ws.on("close", () => {
     if (ws === espSocket) {
       espSocket = null;
-      console.log("❌ ESP32 disconnected");
-    } else {
-      console.log("❌ Web client disconnected");
+      console.log("🔴 ESP32 Disconnected");
     }
   });
 });
 
-function forwardToESP(text) {
-  if (espSocket && espSocket.readyState === 1) {
-    espSocket.send(text);
-    console.log("📤 Sent to ESP32:", text);
-  } else {
-    console.log("⚠ No ESP32 connected, cannot send:", text);
-  }
-}
+// ----- OTA UPLOAD ENDPOINT -----
+app.post("/upload-firmware", upload.single("firmware"), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "No file" });
 
-// ---------- REST fallback ----------
-app.post("/send-text", (req, res) => {
-  const { text } = req.body;
-  if (!text) return res.status(400).json({ error: "No text provided" });
-  forwardToESP(text);
-  res.json({ status: "sent", text });
+  latestFirmwarePath = req.file.path;
+  console.log("📦 New firmware stored:", req.file.path);
+
+  res.json({ status: "uploaded" });
 });
 
-// ---------- Fallback for frontend ----------
+// ----- ESP32 DOWNLOADS FIRMWARE HERE -----
+app.get("/firmware.bin", (req, res) => {
+  if (!latestFirmwarePath) return res.status(404).send("No firmware yet");
+  res.sendFile(path.join(__dirname, latestFirmwarePath));
+});
+
+// ----- FALLBACK FRONTEND -----
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "./frontend/index.html"));
 });
