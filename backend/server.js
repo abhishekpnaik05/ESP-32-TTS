@@ -25,39 +25,77 @@ const server = app.listen(process.env.PORT || 3000, () =>
   console.log(`🚀 Server online on ${process.env.PORT || 3000}`)
 );
 
-// ----- WEBSOCKET ATTACH -----
+// -----------------------------------------------------------
+// ---------------------  WEBSOCKET SERVER -------------------
+// -----------------------------------------------------------
 const wss = new WebSocketServer({ server });
 
-let espSocket = null;
+let espSocket = null;     // Store ESP32 connection
+let browserSockets = new Set(); // Track browsers
 
 wss.on("connection", (ws) => {
-  console.log("🔗 New WS client");
+  console.log("🔗 New WS client connected");
+
+  // Add every new socket as a browser until proven ESP
+  browserSockets.add(ws);
 
   ws.on("message", (msg) => {
     const text = msg.toString().trim();
     console.log("📨 Received:", text);
 
+    // ------------------- ESP32 IDENTIFICATION -------------------
     if (text === "ESP32_READY") {
       espSocket = ws;
-      console.log("🟢 ESP32 Registered");
+      browserSockets.delete(ws);
+      console.log("🟢 ESP32 registered");
       return;
     }
 
-    if (espSocket && ws !== espSocket) {
-      espSocket.send(text);
-      console.log("📤 Sent to ESP32 →", text);
+    // ----------------- IF MESSAGE FROM BROWSER -------------------
+    if (browserSockets.has(ws)) {
+      console.log("🌐 Browser sent:", text);
+
+      if (espSocket && espSocket.readyState === 1) {
+        espSocket.send(text);
+        console.log("📤 Sent to ESP32 →", text);
+      } else {
+        console.log("⚠️ ESP32 NOT CONNECTED – browser message ignored");
+      }
+      return;
+    }
+
+    // ----------------- IF MESSAGE FROM ESP32 -------------------
+    if (ws === espSocket) {
+      console.log("🤖 ESP32 says:", text);
+
+      // Forward to all browsers
+      browserSockets.forEach((client) => {
+        if (client.readyState === 1) client.send(text);
+      });
+
+      console.log("📤 Broadcast to browsers");
     }
   });
 
   ws.on("close", () => {
+    console.log("❌ WebSocket closed");
+
     if (ws === espSocket) {
       espSocket = null;
       console.log("🔴 ESP32 Disconnected");
     }
+
+    if (browserSockets.has(ws)) {
+      browserSockets.delete(ws);
+      console.log("🔻 Browser disconnected");
+    }
   });
 });
 
-// ----- OTA UPLOAD ENDPOINT -----
+// -----------------------------------------------------------
+// ---------------------- OTA ENDPOINTS -----------------------
+// -----------------------------------------------------------
+
 app.post("/upload-firmware", upload.single("firmware"), (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file" });
 
@@ -67,13 +105,13 @@ app.post("/upload-firmware", upload.single("firmware"), (req, res) => {
   res.json({ status: "uploaded" });
 });
 
-// ----- ESP32 DOWNLOADS FIRMWARE HERE -----
+// ESP32 downloads latest firmware here
 app.get("/firmware.bin", (req, res) => {
   if (!latestFirmwarePath) return res.status(404).send("No firmware yet");
   res.sendFile(path.join(__dirname, latestFirmwarePath));
 });
 
-// ----- FALLBACK FRONTEND -----
+// ----- FRONTEND FALLBACK -----
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "./frontend/index.html"));
 });
