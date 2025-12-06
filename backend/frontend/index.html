@@ -1,109 +1,163 @@
 <!DOCTYPE html>
 <html>
   <head>
+    <meta charset="utf-8" />
     <title>ESP32 Speech + OTA Control</title>
     <style>
-      body {
-        font-family: Arial, sans-serif;
-        padding: 20px;
-        background: #f4f4f4;
-      }
-      #box {
-        max-width: 420px;
-        margin: auto;
-        background: white;
-        padding: 20px;
-        border-radius: 12px;
-        box-shadow: 0 0 10px #ccc;
-      }
-      input, button {
-        font-size: 1.1rem;
-        padding: 10px;
-      }
-      button {
-        margin-top: 10px;
-        background: #0078ff;
-        color: white;
-        border: none;
-        border-radius: 8px;
-        cursor: pointer;
-      }
+      body { font-family: Arial, sans-serif; padding: 20px; background: #f4f4f4; }
+      #box { max-width: 720px; margin: auto; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 0 10px #ccc; }
+      input, button, textarea { font-size: 1rem; padding: 8px; }
+      button { margin-top: 8px; background: #0078ff; color: white; border: none; border-radius: 8px; cursor: pointer; }
       button:hover { background: #005fd1; }
-      #log {
-        margin-top: 20px;
-        height: 200px;
-        overflow-y: auto;
-        background: #111;
-        color: #0f0;
-        padding: 10px;
-        font-family: monospace;
-        border-radius: 8px;
-      }
+      .row { display:flex; gap:8px; align-items:center; margin-top:8px; }
+      #log { margin-top: 16px; height: 240px; overflow-y: auto; background: #111; color: #0f0; padding: 10px; font-family: monospace; border-radius: 8px; }
+      label { font-weight: 600; }
     </style>
   </head>
 
   <body>
     <div id="box">
-
       <h2>ESP32 TTS Control</h2>
 
-      <input id="msg" placeholder="Type text to speak" style="width:100%">
-      <button onclick="sendMsg()">Send</button>
+      <div>
+        <label>Direct WebSocket (if ESP connected)</label>
+        <div class="row">
+          <input id="msg" placeholder="Type text or command (e.g. OTA_UPDATE)" style="flex:1">
+          <button onclick="sendWsMsg()">Send WS</button>
+        </div>
+      </div>
 
-      <h3>OTA Firmware Update</h3>
-      <input type="file" id="binfile" accept=".bin">
-      <button onclick="uploadBin()">Upload Firmware</button>
-      <button onclick="triggerOTA()">Start OTA Update</button>
+      <hr>
+
+      <div>
+        <label>HTTP API (use this if ESP is not on WS)</label>
+        <div style="margin-top:8px">
+          <div class="row">
+            <input id="speakText" placeholder="Text to speak via HTTP" style="flex:1">
+            <button onclick="apiSpeak()">Speak (HTTP)</button>
+          </div>
+
+          <div class="row">
+            <input id="uploadUrl" placeholder="Direct MP3 URL (http://...)" style="flex:1">
+            <button onclick="apiUploadUrl()">Send Upload URL</button>
+          </div>
+
+          <div class="row">
+            <button onclick="apiTriggerOTA()">Trigger OTA (HTTP)</button>
+            <button onclick="apiPing()">Ping Server</button>
+            <button onclick="fetchPending()">Get Pending Command</button>
+          </div>
+        </div>
+      </div>
+
+      <hr>
+
+      <div>
+        <label>Upload Firmware (.bin)</label>
+        <div class="row">
+          <input type="file" id="binfile" accept=".bin">
+          <button onclick="uploadBin()">Upload Firmware</button>
+          <button onclick="startOTA()">Start OTA (WS/HTTP)</button>
+        </div>
+      </div>
 
       <h3>Log Output</h3>
       <div id="log"></div>
-
     </div>
 
     <script>
-      const log = (t) => {
-        const el = document.getElementById("log");
-        el.innerHTML += t + "<br>";
-        el.scrollTop = el.scrollHeight;
-      };
+      const logEl = document.getElementById("log");
+      function log(t){
+        const time = new Date().toLocaleTimeString();
+        logEl.innerHTML += `[${time}] ${t}<br>`;
+        logEl.scrollTop = logEl.scrollHeight;
+      }
 
-      const ws = new WebSocket("wss://" + location.host);
+      // WebSocket (wss if https, ws if http)
+      const locProtocol = location.protocol === "https:" ? "wss:" : "ws:";
+      const wsUrl = locProtocol + "//" + location.host;
+      const ws = new WebSocket(wsUrl);
 
       ws.onopen = () => log("🟢 WS Connected");
       ws.onclose = () => log("🔴 WS Disconnected");
-      ws.onerror = () => log("⚠ WS Error");
-      ws.onmessage = (e) => log("📩 " + e.data);
+      ws.onerror = (e) => log("⚠ WS Error");
+      ws.onmessage = (e) => log("📩 WS: " + e.data);
 
-      function sendMsg() {
+      function sendWsMsg(){
         const t = document.getElementById("msg").value.trim();
         if (!t) return;
         ws.send(t);
-        log("➡ Sent: " + t);
+        log("➡ WS Sent: " + t);
         document.getElementById("msg").value = "";
       }
 
-      async function uploadBin() {
-        const file = document.getElementById("binfile").files[0];
-        if (!file) return alert("Select a .bin file!");
-
-        const form = new FormData();
-        form.append("firmware", file);
-
-        const res = await fetch("/upload-firmware", {
+      // ----- HTTP API functions -----
+      async function apiSpeak(){
+        const text = document.getElementById("speakText").value.trim();
+        if (!text) return alert("Enter text to speak");
+        const res = await fetch("/api/esp32/speak", {
           method: "POST",
-          body: form
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text })
         });
-
-        const data = await res.json();
-        log("📦 Firmware uploaded");
-
-        alert("Firmware uploaded successfully.");
+        const j = await res.json();
+        log("📡 HTTP speak -> " + JSON.stringify(j));
       }
 
-      function triggerOTA() {
-        ws.send("OTA_UPDATE");
-        log("🚀 OTA Update triggered");
-        alert("OTA command sent to ESP32");
+      async function apiUploadUrl(){
+        const url = document.getElementById("uploadUrl").value.trim();
+        if (!url) return alert("Enter URL to upload");
+        const res = await fetch("/api/esp32/upload-url", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url })
+        });
+        const j = await res.json();
+        log("📡 HTTP upload-url -> " + JSON.stringify(j));
+      }
+
+      async function apiTriggerOTA(){
+        const res = await fetch("/api/esp32/trigger-ota", { method: "POST" });
+        const j = await res.json();
+        log("🚀 HTTP trigger-ota -> " + JSON.stringify(j));
+      }
+
+      async function apiPing(){
+        const res = await fetch("/api/esp32/ping");
+        const txt = await res.text();
+        log("🏓 Ping -> " + txt);
+      }
+
+      async function fetchPending(){
+        const res = await fetch("/api/esp32/command");
+        const txt = await res.text();
+        log("📥 Pending command -> '" + txt + "'");
+      }
+
+      // Firmware upload
+      async function uploadBin(){
+        const file = document.getElementById("binfile").files[0];
+        if (!file) return alert("Select a .bin file!");
+        const form = new FormData();
+        form.append("firmware", file);
+        const res = await fetch("/upload-firmware", { method: "POST", body: form });
+        const j = await res.json();
+        log("📦 Firmware uploaded -> " + JSON.stringify(j));
+        alert("Firmware uploaded successfully");
+      }
+
+      // Start OTA — prefer WS if available (sends OTA_UPDATE), else fallback to HTTP trigger
+      async function startOTA(){
+        if (ws.readyState === 1) {
+          ws.send("OTA_UPDATE");
+          log("➡ WS Sent: OTA_UPDATE");
+          alert("OTA command sent by WebSocket");
+        } else {
+          const res = await fetch("/api/esp32/trigger-ota", { method: "POST" });
+          const j = await res.json();
+          log("📡 HTTP trigger-ota -> " + JSON.stringify(j));
+          alert("OTA command queued via HTTP");
+        }
       }
     </script>
   </body>
